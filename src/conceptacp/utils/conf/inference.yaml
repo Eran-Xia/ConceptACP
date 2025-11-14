@@ -1,0 +1,12 @@
+defaults:
+  - _self_
+  - data: default
+
+work_dir: ${hydra:runtime.cwd}
+model_path: stabilityai/sdxl-turbo
+model_id: ${data.model_path}
+lambda_neg_c: 0.2
+finetune_model_path: ${work_dir}/models/nudity_99_0.2_1.6.pt
+output_path: ${work_dir}/data/inference
+num_inference_steps: 100
+method: ConcepACP

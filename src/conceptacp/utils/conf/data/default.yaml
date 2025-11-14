@@ -1,0 +1,26 @@
+work_dir: ${hydra:runtime.cwd}
+model_path: stabilityai/sdxl-turbo
+sae_checkpoints: ${work_dir}/checkpoints
+retain_prompts: ${work_dir}/data/train_prompts/retain.json
+forgot_prompts: ${work_dir}/data/train_prompts/forgot.json
+test_retain_prompts: ${work_dir}/data/Benchmarking_prompts/retain.json
+test_forgot_prompts: ${work_dir}/data/Benchmarking_prompts/forgot.json
+finetune_config_dir: ${work_dir}/data/finetune_config
+recons_save_path: ${work_dir}/data/recons
+output_path: ${work_dir}/data/output
+top_k: 10
+device: cuda:1
+num_inference_steps: 1
+unlearn_type: nudity
+img_class: woman
+code: down.2.1
+make_data_scale: 0.2
+feature_scales:
+  4913: -5
+code_to_block:
+  down.2.1: unet.down_blocks.2.attentions.1
+  mid.0: unet.mid_block.attentions.0
+  up.0.1: unet.up_blocks.0.attentions.1
+  up.0.0: unet.up_blocks.0.attentions.0
+
+

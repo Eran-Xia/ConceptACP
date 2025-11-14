@@ -1,0 +1,14 @@
+{
+    "unlearn_type": "style_vangogh",
+    "block": [
+        "up.0.1"
+    ],
+    "finetune_feature": [
+        3166,
+        4950
+    ],
+    "finetune_strength": [
+        -5.0,
+        -2.8
+    ]
+}
