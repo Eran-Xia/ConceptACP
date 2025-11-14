@@ -1,16 +1,19 @@
-# ConceptACP
+# Concept Acupuncturist: An Efficient and Precise Concept Erasure Method for Diffusion Models Via Sparse Autoencoders
 
-Editting Diffusion model based on SAE
+**WARNING: This repository contains model outputs that may be offensive in nature.**
 
-1. selet_feature: notebooks/0x00_feature_select.ipynb
+## 1. Environment Setup
 
-2. get dataset:
+This project uses [UV] for reproducible environment management.  
+
+## 2. selet_feature
+run notebooks/0x00_feature_select.ipynb
+
+## 3. generate fine-tuning dataset
 uv run src/conceptacp/utils/make_data.py
 
-3. finetune:
+## 4. finetune
 uv run src/conceptacp/utils/finetune.py
 
-4. generate images for test
+## 5. generate images for test
 uv run src/conceptacp/utils/inference.py
-
-configs are in src/conceptacp/utils/conf
