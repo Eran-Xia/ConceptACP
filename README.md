@@ -1,16 +1,30 @@
-# ConceptACP
+# Concept Acupuncturist: An Efficient and Precise Concept Erasure Method for Diffusion Models Via Sparse Autoencoders
 
-Editting Diffusion model based on SAE
+**Warning:** This repository includes model outputs that may be offensive.
 
-1. selet_feature: notebooks/0x00_feature_select.ipynb
+## Requirements
+- UV installed: https://docs.astral.sh/uv/
 
-2. get dataset:
+## Environment
+uv sync
+
+## 1) Feature selection
+Run the notebook interactively:
+```bash
+notebooks/0x00_feature_select.ipynb
+```
+
+## 2) Generate the fine-tuning dataset
+```bash
 uv run src/conceptacp/utils/make_data.py
+```
 
-3. finetune:
+## 3) Fine-tune
+```bash
 uv run src/conceptacp/utils/finetune.py
+```
 
-4. generate images for test
+## 4) Inference (generate test images)
+```bash
 uv run src/conceptacp/utils/inference.py
-
-configs are in src/conceptacp/utils/conf
+```
