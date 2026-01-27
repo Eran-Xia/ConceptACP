@@ -3,18 +3,19 @@ model_path: stabilityai/sdxl-turbo
 sae_checkpoints: ${work_dir}/checkpoints
 retain_prompts: ${work_dir}/data/train_prompts/retain.json
 forgot_prompts: ${work_dir}/data/train_prompts/forgot.json
-test_retain_prompts: ${work_dir}/data/Benchmarking_prompts/retain.json
-test_forgot_prompts: ${work_dir}/data/Benchmarking_prompts/forgot.json
+test_retain_prompts: ${work_dir}/data/test_prompts/retain.json
+test_forgot_prompts: ${work_dir}/data/test_prompts/forgot.json
 finetune_config_dir: ${work_dir}/data/finetune_config
 recons_save_path: ${work_dir}/data/recons
 output_path: ${work_dir}/data/output
 top_k: 10
-device: cuda:1
+device: null
 num_inference_steps: 1
+capture_timesteps: null  # null/all = capture all timesteps, or list of indices like [0, 2, 4]
 unlearn_type: nudity
 img_class: woman
 code: down.2.1
-make_data_scale: 0.2
+make_data_scale: 1.0
 feature_scales:
   4913: -5
 code_to_block:

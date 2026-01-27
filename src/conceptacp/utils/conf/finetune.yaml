@@ -1,9 +1,14 @@
 defaults:
-  - _self_
-  - data: default
+  - data/default@_here_  # Load data config into current level (no nesting)
+  - _self_  # Allow this file to override
 
+# Override data config paths
 work_dir: ${hydra:runtime.cwd}
-model_path: stabilityai/sdxl-turbo
-model_id: ${model_path}
 finetune_model_path: ${work_dir}/models
-lambda_neg_c: 0.2
+
+# Training optimization
+batch_size: 32  # Increase for better GPU utilization
+num_workers: 2  # Parallel data loading (2 is safer for single tar files, increase to 4-8 for multiple shards)
+prefetch_factor: 2  # Prefetch batches per worker
+gradient_accumulation_steps: 1  # Accumulate gradients for larger effective batch size
+use_amp: true  # Use automatic mixed precision (fp16) for faster training
