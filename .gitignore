@@ -205,3 +205,15 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+models/finetune
+.vscode
+
+# outputs
+outputs/
+models/
+data/output
+data/recons
+data/inference
+data/finetune_config
+data/finetune_config_turbo
