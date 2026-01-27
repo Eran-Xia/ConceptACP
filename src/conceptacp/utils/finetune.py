@@ -1,4 +1,4 @@
-#%%
+#Prompt->Latent finetuning
 import torch
 from diffusers import StableDiffusionXLPipeline
 from conceptacp.sae.SDLens import HookedStableDiffusionXLPipeline
@@ -12,9 +12,74 @@ import io
 import hydra
 from omegaconf import DictConfig
 import pathlib
+import time
+import psutil
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def get_memory_usage():
+    """Get current memory usage in MB."""
+    process = psutil.Process(os.getpid())
+    cpu_mem = process.memory_info().rss / 1024 / 1024  # MB
+
+    if torch.cuda.is_available():
+        gpu_mem_allocated = torch.cuda.memory_allocated() / 1024 / 1024  # MB
+        gpu_mem_reserved = torch.cuda.memory_reserved() / 1024 / 1024  # MB
+        gpu_mem_max = torch.cuda.max_memory_allocated() / 1024 / 1024  # MB
+        return {
+            'cpu_mb': cpu_mem,
+            'gpu_allocated_mb': gpu_mem_allocated,
+            'gpu_reserved_mb': gpu_mem_reserved,
+            'gpu_max_mb': gpu_mem_max
+        }
+    else:
+        return {'cpu_mb': cpu_mem}
+
+
+def compute_parameter_changes(initial_state, final_state):
+    """Compute statistics about parameter changes."""
+    total_params = 0
+    changed_params = 0
+    total_change = 0.0
+    max_change = 0.0
+    max_change_param = None
+
+    for name in initial_state.keys():
+        initial = initial_state[name]
+        final = final_state[name]
+
+        param_count = initial.numel()
+        total_params += param_count
+
+        # Compute parameter-wise changes
+        diff = torch.abs(final - initial)
+        param_change = diff.sum().item()
+        total_change += param_change
+
+        # Count significantly changed parameters (> 1e-6)
+        changed_mask = diff > 1e-6
+        changed_params += changed_mask.sum().item()
+
+        # Track maximum change
+        max_diff = diff.max().item()
+        if max_diff > max_change:
+            max_change = max_diff
+            max_change_param = name
+
+    avg_change = total_change / total_params if total_params > 0 else 0
+    pct_changed = (changed_params / total_params * 100) if total_params > 0 else 0
+
+    return {
+        'total_params': total_params,
+        'changed_params': changed_params,
+        'pct_changed': pct_changed,
+        'avg_change': avg_change,
+        'max_change': max_change,
+        'max_change_param': max_change_param
+    }
+
 
 def unfreeze_layer(pipe, code):
     block_type = code.split(".")[0]
@@ -36,17 +101,17 @@ def unfreeze_layer(pipe, code):
         param.requires_grad = True
     
 def setup_model(cfg):
-    model_id = cfg.model_id
+    model_path = cfg.data.model_path
     # pipe = StableDiffusionXLPipeline.from_pretrained(
-    #     model_id, 
+    #     model_path,
     #     torch_dtype=torch.float16,
     #     variant="fp16"
     # )
     dtype = torch.float32
     hooked_pipe = HookedStableDiffusionXLPipeline.from_pretrained(
-        model_id,
+        model_path,
         torch_dtype=dtype,
-        device_map="balanced",
+        # device_map="balanced",
         variant=("fp16" if dtype==torch.float16 else None)
     )
     pipe = hooked_pipe.pipe
@@ -195,14 +260,32 @@ def finetune(cfg):
 
 
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, 
+        optimizer,
         T_max=num_epochs
     )
-    
+
+    # Save initial state for comparison
+    initial_state = {name: param.clone().detach().cpu()
+                    for name, param in pipe.pipe.unet.named_parameters()
+                    if param.requires_grad}
+
+    # Reset peak memory stats
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+
+    # Log initial memory
+    initial_memory = get_memory_usage()
+    logger.info(f"Initial memory - CPU: {initial_memory['cpu_mb']:.1f}MB, GPU: {initial_memory.get('gpu_allocated_mb', 0):.1f}MB")
+
+    # Track training time
+    training_start_time = time.time()
+    epoch_times = []
+
     for epoch in range(num_epochs):
         total_loss = 0
-        total_loss_c = 0  
-        total_loss_neg_c = 0  
+        total_loss_c = 0
+        total_loss_neg_c = 0
+        epoch_start = time.time()
         # for prompts, target_features in train_dataloader:
         for (prompts, target_features), (prompts_neg_c, target_features_neg_c) in zip(train_dataloader, train_dataloader_retain):
             target_features=target_features.permute(0,3,1,2).contiguous().to(device)
@@ -256,17 +339,60 @@ def finetune(cfg):
 
         scheduler.step()
 
-
+        epoch_time = time.time() - epoch_start
+        epoch_times.append(epoch_time)
         avg_loss = total_loss / 100
         avg_loss_c = total_loss_c / 50
         avg_loss_neg_c = total_loss_neg_c / 50
 
+        # Get current memory usage
+        current_memory = get_memory_usage()
 
-        logger.info(f"Epoch {epoch+1}/{num_epochs}, avg loss: {avg_loss:.4f}")
+        logger.info(
+            f"Epoch {epoch+1}/{num_epochs} | "
+            f"Loss: {avg_loss:.4f} | "
+            f"Time: {epoch_time:.2f}s | "
+            f"GPU: {current_memory.get('gpu_allocated_mb', 0):.0f}MB"
+        )
 
 
         if (epoch + 1) % 100 == 0:
             save_checkpoint(cfg, pipe, epoch, avg_loss)
+
+    # Training complete - compute final statistics
+    total_training_time = time.time() - training_start_time
+    avg_epoch_time = sum(epoch_times) / len(epoch_times) if epoch_times else 0
+
+    # Get final memory usage
+    final_memory = get_memory_usage()
+    peak_memory = final_memory.get('gpu_max_mb', 0)
+
+    # Compute parameter changes
+    final_state = {name: param.clone().detach().cpu()
+                   for name, param in pipe.pipe.unet.named_parameters()
+                   if param.requires_grad}
+    param_stats = compute_parameter_changes(initial_state, final_state)
+
+    # Log final summary
+    logger.info("\n" + "="*80)
+    logger.info("TRAINING COMPLETE!")
+    logger.info("="*80)
+    logger.info(f"Total training time: {total_training_time/60:.2f} minutes ({total_training_time:.1f}s)")
+    logger.info(f"Average time per epoch: {avg_epoch_time:.2f}s")
+    logger.info(f"Total epochs: {num_epochs}")
+    logger.info("")
+    logger.info("Memory Usage:")
+    logger.info(f"  Peak GPU memory: {peak_memory:.1f}MB")
+    logger.info(f"  Final GPU memory: {final_memory.get('gpu_allocated_mb', 0):.1f}MB")
+    logger.info(f"  CPU memory: {final_memory['cpu_mb']:.1f}MB")
+    logger.info("")
+    logger.info("Parameter Changes:")
+    logger.info(f"  Total parameters: {param_stats['total_params']:,}")
+    logger.info(f"  Changed parameters: {param_stats['changed_params']:,} ({param_stats['pct_changed']:.2f}%)")
+    logger.info(f"  Average parameter change: {param_stats['avg_change']:.2e}")
+    logger.info(f"  Maximum parameter change: {param_stats['max_change']:.2e}")
+    logger.info(f"  Layer with max change: {param_stats['max_change_param']}")
+    logger.info("="*80 + "\n")
 
     return pipe
 # %%

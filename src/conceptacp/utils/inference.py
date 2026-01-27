@@ -18,21 +18,21 @@ device = torch.device("cuda:1")
 def setup_models(cfg):
     dtype = torch.float32
     pipe1 = HookedStableDiffusionXLPipeline.from_pretrained(
-        cfg.model_id,
+        cfg.model_path,
         torch_dtype=dtype,
         device_map="balanced",
         variant=("fp16" if dtype==torch.float16 else None)
     )
 
     pipe2= HookedStableDiffusionXLPipeline.from_pretrained(
-        cfg.model_id,
+        cfg.model_path,
         torch_dtype=dtype,
         device_map="balanced",
         variant=("fp16" if dtype==torch.float16 else None)
     )
 
     checkpoint = torch.load(cfg.finetune_model_path, map_location="cuda")
-    if cfg.data.unlearn_type=="style_vangogh":
+    if cfg.unlearn_type=="style_vangogh":
         pipe2.pipe.unet.up_blocks[0].attentions[1].load_state_dict(checkpoint["model_state_dict"])
     else:
         pipe2.pipe.unet.down_blocks[2].attentions[1].load_state_dict(checkpoint["model_state_dict"])
@@ -45,21 +45,30 @@ def setup_models(cfg):
 def main(cfg: DictConfig):
 
     pipe1, pipe2 = setup_models(cfg)
-    
 
-    with open(cfg.data.test_forgot_prompts, 'r') as f:
+    print(f"Output directory: {cfg.output_path}")
+    print(f"Method: {cfg.method}")
+    print(f"Unlearn type: {cfg.unlearn_type}")
+    print(f"Number of inference steps: {cfg.num_inference_steps}\n")
+
+
+    with open(cfg.test_forgot_prompts, 'r') as f:
         forgot_prompts = json.load(f)
 
-    with open(cfg.data.test_retain_prompts, 'r') as f:
+    with open(cfg.test_retain_prompts, 'r') as f:
         retain_prompts = json.load(f)
-    
+
     num=0
-    for img_class in forgot_prompts[cfg.data.unlearn_type]:
-        save_path=f"/output_images/{cfg.data.unlearn_type}/forgot/{cfg.method}"
-        save_path2=f"/output_images/{cfg.data.unlearn_type}/forgot/ori"
+    for img_class in forgot_prompts[cfg.unlearn_type]:
+        save_path = os.path.join(cfg.output_path, cfg.unlearn_type, "forgot", cfg.method)
+        save_path2 = os.path.join(cfg.output_path, cfg.unlearn_type, "forgot", "ori")
         os.makedirs(save_path, exist_ok=True)
         os.makedirs(save_path2, exist_ok=True)
-        for i, prompt in enumerate(forgot_prompts[cfg.data.unlearn_type][img_class]):    
+        print(f"Processing forgot prompts for class: {img_class}")
+        print(f"  Saving fine-tuned images to: {save_path}")
+        print(f"  Saving original images to: {save_path2}")
+        for i, prompt in enumerate(forgot_prompts[cfg.unlearn_type][img_class]):
+            print(f"  Generating image {num+1} with prompt: {prompt[:50]}...")
             images = pipe2(prompt, guidance_scale=0.0,num_images_per_prompt=1, num_inference_steps=cfg.num_inference_steps, generator=torch.Generator(device="cpu").manual_seed(42)).images
             for k, img in enumerate(images):
                 img.save(F"{save_path}/{num}_{k}.png")
@@ -67,6 +76,9 @@ def main(cfg: DictConfig):
             for k, img in enumerate(images):
                 img.save(F"{save_path2}/{num}_{k}.png")
             num=num+1
+
+    print(f"\n✓ Inference complete! Images saved to {cfg.output_path}")
+    print(f"  Total images generated: {num}")
 
 if __name__ == "__main__":
     main()
