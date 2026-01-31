@@ -217,3 +217,8 @@ data/recons
 data/inference
 data/finetune_config
 data/finetune_config_turbo
+
+# Test and diagnostic scripts
+test_*.py
+diagnose_*.py
+validate_*.py
