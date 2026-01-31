@@ -1,9 +1,34 @@
+# Configuration for feature_select.py
+# Composes model, task, and paths into flat structure
+
 defaults:
+  - model: sdxl  # Override with model=sd15
+  - task/feature_select@_here_
   - _self_
-  - data: default
 
+# Flatten model config into root level
+model_path: ${model.model_path}
+model_version: ${model.model_version}
+d_model: ${model.d_model}
+default_resolution: ${model.default_resolution}
+num_inference_steps: ${model.num_inference_steps}
+guidance_scale: ${model.guidance_scale}
+sae_checkpoints: ${model.sae_checkpoints}
+top_k: ${model.top_k}
+code_to_block: ${model.code_to_block}
+
+# Flatten paths into root level
 work_dir: ${hydra:runtime.cwd}
-model_path: stabilityai/sdxl-turbo
-model_id: ${model_path}
-finetune_model_path: ${work_dir}/models
+retain_prompts: ${work_dir}/data/train_prompts/retain.json
+forgot_prompts: ${work_dir}/data/train_prompts/forgot.json
+finetune_config_dir: ${work_dir}/data/finetune_config
 
+# Process specific unlearn_type or 'all' (feature_select uses this differently)
+unlearn_type: all  # Can be overridden with unlearn_type=nudity
+
+# Hydra configuration
+hydra:
+  run:
+    dir: ${hydra:runtime.cwd}/outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  job:
+    chdir: false

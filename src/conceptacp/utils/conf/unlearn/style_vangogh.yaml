@@ -1,0 +1,20 @@
+# Van Gogh style unlearning configuration
+
+# Concept identification
+unlearn_type: style_vangogh
+img_class: vangogh
+
+# Target block for fine-tuning
+code: up.0.1  # Note: Different block than object/nudity
+
+# Fine-tuning hyperparameter
+lambda_neg_c: 0.2  # Weight for retain set loss
+
+# Feature scales (feature_id: strength)
+# Automatically computed by feature_select.py
+feature_scales:
+  4950: -5.0
+  3166: -3.5
+  2008: -3.1
+  4197: -3.1
+  1566: -1.0

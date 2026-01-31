@@ -1,0 +1,16 @@
+# Feature selection task configuration
+
+# Selection parameters
+display_top_k: 10  # Number of top features to display per block
+threshold_divisor: 5  # Select features with score >= max_score / threshold_divisor
+max_strength: -5.0  # Maximum scaling strength for top feature
+
+# Inference settings for feature scoring
+# num_inference_steps is inherited from model config (SDXL: 4, SD 1.5: 50)
+# For feature selection, 1 step is usually sufficient for feature discrimination
+# Override with: num_inference_steps=1 for faster feature selection
+capture_interval: null  # null = capture all; e.g., 5 = capture every 5 steps (reduces memory)
+                        # Recommended: 5 or 10 for multi-step inference to save memory
+
+# Device settings
+device: cuda:0

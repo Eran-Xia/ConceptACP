@@ -1,0 +1,18 @@
+# Central path configuration
+# All paths are defined here for easy maintenance and consistency
+
+work_dir: ${hydra:runtime.cwd}
+
+# Prompt paths
+retain_prompts: ${work_dir}/data/train_prompts/retain.json
+forgot_prompts: ${work_dir}/data/train_prompts/forgot.json
+test_retain_prompts: ${work_dir}/data/test_prompts/retain.json
+test_forgot_prompts: ${work_dir}/data/test_prompts/forgot.json
+
+# Data paths
+finetune_config_dir: ${work_dir}/data/finetune_config
+recons_save_path: ${work_dir}/data/recons
+output_path: ${work_dir}/data/output
+
+# Model checkpoint paths
+finetune_model_path: ${work_dir}/models

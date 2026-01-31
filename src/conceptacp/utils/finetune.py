@@ -101,7 +101,7 @@ def unfreeze_layer(pipe, code):
         param.requires_grad = True
     
 def setup_model(cfg):
-    model_path = cfg.data.model_path
+    model_path = cfg.model_path
     # pipe = StableDiffusionXLPipeline.from_pretrained(
     #     model_path,
     #     torch_dtype=torch.float16,
@@ -124,7 +124,7 @@ def setup_model(cfg):
         for param in component.parameters():
             param.requires_grad = False
     
-    unfreeze_layer(pipe, cfg.data.code)
+    unfreeze_layer(pipe, cfg.code)
     
     trainable_params = 0
     for name, param in pipe.unet.named_parameters():
@@ -144,30 +144,34 @@ def calculate_loss(outputs, targets):
     return torch.nn.functional.mse_loss(outputs, targets)
 
 def save_checkpoint(cfg, pipe, epoch, loss):
-    if cfg.data.unlearn_type=="style_vangogh":
+    if cfg.unlearn_type=="style_vangogh":
         block_prefix = "up_blocks.0.attentions.1"
     else:
         block_prefix = "down_blocks.2.attentions.1"
     full_state_dict = pipe.pipe.unet.state_dict()
 
     block_state_dict = {
-        k.replace(f"{block_prefix}.", ""): v 
-        for k, v in full_state_dict.items() 
+        k.replace(f"{block_prefix}.", ""): v
+        for k, v in full_state_dict.items()
         if k.startswith(block_prefix)
     }
     checkpoint = {
         'epoch': epoch,
         'model_state_dict': block_state_dict,
         'loss': loss,
-        'block_prefix': block_prefix,  
+        'block_prefix': block_prefix,
     }
-    if cfg.data.unlearn_type=="object_church":
+    if cfg.unlearn_type=="object_church":
         lambda_neg_c=1.8
-    elif cfg.data.unlearn_type=="object_parachute":
+    elif cfg.unlearn_type=="object_parachute":
         lambda_neg_c=2.0
     else:
         lambda_neg_c=0.2
-    target_path = pathlib.Path(cfg.finetune_model_path) / f'{cfg.data.unlearn_type}_{epoch}_{lambda_neg_c}_{cfg.data.make_data_scale}.pt'
+
+    # Get model version from config
+    model_version = cfg.model_version
+
+    target_path = pathlib.Path(cfg.finetune_model_path) / f'{model_version}_{cfg.unlearn_type}_{epoch}_{lambda_neg_c}_{cfg.make_data_scale}.pt'
     target_path.parent.mkdir(parents=True, exist_ok=True)
 
     torch.save(checkpoint, target_path)
@@ -220,8 +224,12 @@ class ShapeCapture:
 
 def finetune(cfg):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    dataset = FineTuneDataset(tar_paths=[(pathlib.Path(cfg.data.recons_save_path) / f"{cfg.data.code}_{cfg.data.unlearn_type}_{cfg.data.make_data_scale}.tar.gz").as_posix()], batch_size=4)
-    dataset_retain = FineTuneDataset(tar_paths=[(pathlib.Path(cfg.data.recons_save_path) / f"{cfg.data.code}_{cfg.data.unlearn_type}_retain.tar.gz").as_posix()], batch_size=4)
+
+    # Use flat config structure
+    recons_path = pathlib.Path(cfg.recons_save_path)
+
+    dataset = FineTuneDataset(tar_paths=[(recons_path / f"{cfg.code}_{cfg.unlearn_type}_{cfg.make_data_scale}.tar.gz").as_posix()], batch_size=4)
+    dataset_retain = FineTuneDataset(tar_paths=[(recons_path / f"{cfg.code}_{cfg.unlearn_type}_retain.tar.gz").as_posix()], batch_size=4)
     pipe = setup_model(cfg)
     logger.info(f"use device: {device}")
     train_dataloader = DataLoader(
@@ -243,9 +251,9 @@ def finetune(cfg):
     )
     
     num_epochs=100
-    if cfg.data.unlearn_type=="object_church":
+    if cfg.unlearn_type=="object_church":
         lambda_neg_c=1.8
-    elif cfg.data.unlearn_type=="object_parachute":
+    elif cfg.unlearn_type=="object_parachute":
         lambda_neg_c=2.0
     else:
         lambda_neg_c=0.2
@@ -296,12 +304,12 @@ def finetune(cfg):
                 output= pipe.run_with_hooks_grad(
                     prompt=prompts,
                     position_hook_dict={
-                        cfg.data.code_to_block[cfg.data.code]:shape_capturer.debug_hook
+                        cfg.code_to_block[cfg.code]:shape_capturer.debug_hook
 
                     },
                     num_inference_steps=1,
                     output_type="latent",
-                    guidance_scale=0.0, 
+                    guidance_scale=cfg.guidance_scale,
                     generator=torch.Generator(device="cuda").manual_seed(42)
                 )
 
@@ -315,11 +323,11 @@ def finetune(cfg):
                 output_neg_c = pipe.run_with_hooks_grad(
                     prompt=prompts_neg_c, 
                     position_hook_dict={
-                        cfg.data.code_to_block[cfg.data.code]: shape_capturer.debug_hook
+                        cfg.code_to_block[cfg.code]: shape_capturer.debug_hook
                     },
                     num_inference_steps=1,
                     output_type="latent",
-                    guidance_scale=0.0,
+                    guidance_scale=cfg.guidance_scale,
                     generator=torch.Generator(device="cuda").manual_seed(42)
                 )
             captured_tensor_neg_c = shape_capturer.tensor

@@ -1,0 +1,1 @@
+{"expansion_factor": 16, "normalize_decoder": true, "num_latents": 0, "k": 32, "batch_topk": true, "sample_topk": false, "input_unit_norm": false, "multi_topk": false, "time_embedding_type": "positional", "time_embedding_dim": 0, "num_timesteps": 1000, "cond_encoder": false, "d_in": 1280}

@@ -1,0 +1,14 @@
+# Inference task configuration
+
+# Inference settings
+# num_inference_steps is inherited from model config (SDXL: 4, SD 1.5: 50)
+# Override with: num_inference_steps=X
+method: ConcepACP
+
+# Checkpoint to use for inference
+# Override with: checkpoint_path=path/to/checkpoint.pt
+# Default uses model-specific naming: {model_version}_{unlearn_type}_{epoch}_{lambda}_{scale}_block.pt
+checkpoint_path: null  # Auto-constructed if not specified
+
+# Device settings
+device: null  # null = auto-detect CUDA

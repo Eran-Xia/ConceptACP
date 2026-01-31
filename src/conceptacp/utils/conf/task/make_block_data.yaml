@@ -1,0 +1,22 @@
+# Block-level data generation task configuration
+
+# Inference settings
+# num_inference_steps is inherited from model config (SDXL: 4, SD 1.5: 50)
+# Override with: num_inference_steps=X
+
+# Timestep capture configuration (choose ONE method):
+# Method 1: Capture all timesteps (default)
+capture_timesteps: null  # null or "all" = capture all timesteps
+
+# Method 2: Capture at regular intervals (simpler, recommended for many steps)
+capture_interval: null  # e.g., 5 = capture every 5 steps (0, 5, 10, 15, ...)
+                        # Note: capture_interval takes precedence over capture_timesteps if both set
+
+# Method 3: Capture specific timesteps (fine-grained control)
+# capture_timesteps: [0, 2, 4, 6, 8]  # Specify exact timestep indices
+
+# Scaling for data generation
+make_data_scale: 1.0
+
+# Device settings
+device: null  # null = auto-detect CUDA

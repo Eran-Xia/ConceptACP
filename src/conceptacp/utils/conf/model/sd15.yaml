@@ -1,0 +1,27 @@
+# Stable Diffusion 1.5 Configuration
+
+# Model settings
+model_path: runwayml/stable-diffusion-v1-5
+model_version: sd15
+d_model: 1280  # For up_blocks.1.attentions.* (matches SAeUron checkpoints)
+default_resolution: 512
+num_inference_steps: 50  # SD 1.5 standard uses 50 steps
+guidance_scale: 7.5  # Standard CFG scale for SD 1.5
+
+# SAE checkpoint location (organized from SAeUron)
+sae_checkpoints: ${hydra:runtime.cwd}/checkpoints/sd1.5-sae-ckpts
+
+# Top-K for SAE
+top_k: 10
+
+# Block name mappings (shorthand -> full path)
+# Using SAeUron checkpoint locations
+code_to_block:
+  up.1.1: unet.up_blocks.1.attentions.1
+  up.1.2: unet.up_blocks.1.attentions.2
+  # Compatibility mappings: SDXL codes mapped to available SD 1.5 blocks
+  # Use up.1.1 as default for concepts that use down.2.1 in SDXL
+  # down.2.1: unet.up_blocks.1.attentions.1
+  # Can add more blocks if SAEs are trained for them:
+  # down.2.0: unet.down_blocks.2.attentions.0
+  # mid.0: unet.mid_block.attentions.0

@@ -1,0 +1,17 @@
+defaults:
+  - default
+
+# SD 1.5 Configuration
+model_path: runwayml/stable-diffusion-v1-5
+model_version: sd15
+d_model: 1280  # For up_blocks.1.attentions.* (matches SAeUron checkpoints)
+default_resolution: 512
+sae_checkpoints: ${work_dir}/checkpoints/sd1.5-sae-ckpts  # Use organized checkpoint directory
+
+# SD 1.5 block mappings (using SAeUron checkpoint locations)
+code_to_block:
+  up.1.1: unet.up_blocks.1.attentions.1
+  up.1.2: unet.up_blocks.1.attentions.2
+  # Can add more blocks if SAEs are trained for them
+  # down.2.0: unet.down_blocks.2.attentions.0
+  # mid.0: unet.mid_block.attentions.0

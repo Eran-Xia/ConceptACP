@@ -1,0 +1,16 @@
+# Main configuration entry point
+# This file composes model, task, unlearn, and paths configs
+
+defaults:
+  - paths  # Load path definitions
+  - model: sdxl  # Model configuration (sdxl or sd15)
+  - task: ???  # Task configuration (must be specified by each script)
+  - unlearn: nudity  # Unlearn configuration (override with unlearn=object_church, etc.)
+  - _self_  # Allow this file to override
+
+# Hydra configuration
+hydra:
+  run:
+    dir: ${paths.work_dir}/outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  job:
+    chdir: false  # Don't change working directory

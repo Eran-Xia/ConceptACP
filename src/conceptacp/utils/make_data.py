@@ -17,7 +17,7 @@ def scale_features(sparse_maps, feature_scales):
         sparse_maps[:,:,idx] = sparse_maps[:,:,idx] * scale
     return sparse_maps
 
-@hydra.main(config_path="conf/data", config_name="default")
+@hydra.main(version_base=None, config_path="conf", config_name="make_data")
 def main(cfg: DictConfig):
     device = torch.device("cuda:0")
 
@@ -71,10 +71,27 @@ def main(cfg: DictConfig):
         diff = diff.permute(0, 1, 3, 4, 2).squeeze(0).squeeze(0) 
         with torch.no_grad():
             sparse_maps = sae.encode(diff) 
-        return sparse_maps    
-    
-    finetune_config_dir = cfg.finetune_config_dir
-    finetune_config_file = pathlib.Path(finetune_config_dir) / (cfg.unlearn_type + ".json")
+        return sparse_maps
+
+    # Load finetune config to get the target block and features
+    # Check for model-prefixed file first (new pattern), then fall back to old patterns
+    finetune_config_dir = pathlib.Path(cfg.finetune_config_dir)
+    model_prefixed_file = finetune_config_dir / f"{cfg.model_version}_{cfg.unlearn_type}.json"
+    model_specific_file = finetune_config_dir / cfg.model_version / f"{cfg.unlearn_type}.json"
+    model_agnostic_file = finetune_config_dir / f"{cfg.unlearn_type}.json"
+
+    if model_prefixed_file.exists():
+        finetune_config_file = model_prefixed_file
+        print(f"Using model-prefixed config: {finetune_config_file}")
+    elif model_specific_file.exists():
+        finetune_config_file = model_specific_file
+        print(f"Using model-specific config (legacy): {finetune_config_file}")
+    elif model_agnostic_file.exists():
+        finetune_config_file = model_agnostic_file
+        print(f"Using model-agnostic config: {finetune_config_file}")
+    else:
+        raise FileNotFoundError(f"No finetune config found for {cfg.unlearn_type} in {finetune_config_dir}")
+
     with open(finetune_config_file, 'r') as f:
         finetune_config = json.load(f)
         feature_scales = {}
@@ -82,8 +99,9 @@ def main(cfg: DictConfig):
             feature_scales[feature] = scale*cfg.make_data_scale
         finetune_block = finetune_config["block"][0]
         finetune_type = finetune_config["unlearn_type"]
-    
+
     recons_save_path=cfg.recons_save_path
+    # Create output directory
     os.makedirs(recons_save_path, exist_ok=True)
     recons_writers = {
         block: wds.TarWriter(f'{recons_save_path}/{finetune_block}_{finetune_type}_{cfg.make_data_scale}.tar.gz')
@@ -94,12 +112,12 @@ def main(cfg: DictConfig):
         num=num+1
         output, cache = pipe.run_with_cache(
             forgot_prompt,
-            positions_to_cache=list(cfg.code_to_block.values()), 
-            save_input=True, 
+            positions_to_cache=list(cfg.code_to_block.values()),
+            save_input=True,
             save_output=True,
             num_inference_steps=cfg.num_inference_steps,
-            guidance_scale=0.0, 
-            generator=torch.Generator(device="cpu").manual_seed(42) 
+            guidance_scale=cfg.guidance_scale,
+            generator=torch.Generator(device="cpu").manual_seed(42)
         )
         # sparse_maps = generate_sparse_maps(cache, cfg.code)
         sparse_maps = generate_sparse_maps(cache, finetune_block)
@@ -115,7 +133,7 @@ def main(cfg: DictConfig):
                 'save_input': True,
                 'save_output': True,
                 'num_inference_steps': cfg.num_inference_steps,
-                'guidance_scale': 0.0,
+                'guidance_scale': cfg.guidance_scale,
                 'output_type': 'pil'
             }
         
@@ -133,7 +151,7 @@ def main(cfg: DictConfig):
 
 
     recons_writers2 = {
-        block: wds.TarWriter(f'{recons_save_path}/{finetune_block}_{finetune_type}_retain.tar.gz')
+        block: wds.TarWriter(f'{model_recons_path}/{finetune_block}_{finetune_type}_retain.tar.gz')
     }
     
     num=0
@@ -142,11 +160,11 @@ def main(cfg: DictConfig):
         output, cache = pipe.run_with_cache(
             retain_prompt,
             positions_to_cache=list(cfg.code_to_block.values()),
-            save_input=True, 
+            save_input=True,
             save_output=True,
-            num_inference_steps=cfg.num_inference_steps, 
-            guidance_scale=0.0,
-            generator=torch.Generator(device="cpu").manual_seed(42) 
+            num_inference_steps=cfg.num_inference_steps,
+            guidance_scale=cfg.guidance_scale,
+            generator=torch.Generator(device="cpu").manual_seed(42)
         )
         block = cfg.code_to_block[finetune_block]
         recons = cache["output"][block].to(device) 
@@ -158,7 +176,7 @@ def main(cfg: DictConfig):
                 'save_input': True,
                 'save_output': True,
                 'num_inference_steps': cfg.num_inference_steps,
-                'guidance_scale': 0.0,
+                'guidance_scale': cfg.guidance_scale,
                 'output_type': 'pil'
             }
 

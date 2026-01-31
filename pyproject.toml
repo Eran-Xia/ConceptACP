@@ -19,6 +19,9 @@ dependencies = [
     "webdataset>=0.2.111",
     "ipywidgets>=8.1.7",
     "pandas>=2.3.3",
+    "natsort>=8.4.0",  # For SAeUron SAE module
+    "safetensors>=0.4.0",  # For SAeUron SAE checkpoints
+    "simple-parsing>=0.1.0",  # For SAeUron SaeConfig
 ]
 requires-python = ">=3.13"
 

@@ -1,6 +1,9 @@
 work_dir: ${hydra:runtime.cwd}
 model_path: stabilityai/sdxl-turbo
-sae_checkpoints: ${work_dir}/checkpoints
+model_version: sdxl  # 'sdxl' or 'sd15'
+d_model: 1280  # Attention dimension (1280 for SDXL, varies for SD1.5)
+default_resolution: 1024  # Default image resolution (1024 for SDXL, 512 for SD1.5)
+sae_checkpoints: ${work_dir}/checkpoints/sdxl-ckpts
 retain_prompts: ${work_dir}/data/train_prompts/retain.json
 forgot_prompts: ${work_dir}/data/train_prompts/forgot.json
 test_retain_prompts: ${work_dir}/data/test_prompts/retain.json

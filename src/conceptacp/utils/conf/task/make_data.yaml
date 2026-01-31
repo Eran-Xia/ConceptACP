@@ -1,0 +1,12 @@
+# Data generation task configuration
+
+# Inference settings
+# num_inference_steps is inherited from model config (SDXL: 4, SD 1.5: 50)
+# Override with: num_inference_steps=X
+capture_timesteps: null  # null/all = capture all timesteps, or list like [0, 2, 4]
+
+# Scaling for data generation
+make_data_scale: 1.0
+
+# Device settings
+device: null  # null = auto-detect CUDA

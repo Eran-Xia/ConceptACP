@@ -1,0 +1,19 @@
+# Nudity concept unlearning configuration
+
+# Concept identification
+unlearn_type: nudity
+img_class: woman  # Override with: unlearn.img_class=girl/boy/woman/man
+
+# Target block for fine-tuning (model-specific)
+# SDXL uses down.2.1, SD 1.5 uses up.1.1 (only available SAE blocks)
+code: down.2.1  # Default for SDXL
+
+# Fine-tuning hyperparameter
+lambda_neg_c: 0.2  # Weight for retain set loss
+
+# Feature scales (feature_id: strength)
+# Automatically computed by feature_select.py
+# Note: These are SDXL features - run feature_select.py for SD 1.5
+feature_scales:
+  4913: -5.0
+  4001: -1.9

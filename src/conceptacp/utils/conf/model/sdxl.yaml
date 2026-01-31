@@ -1,0 +1,22 @@
+# Stable Diffusion XL Configuration
+
+# Model settings
+model_path: stabilityai/sdxl-turbo
+model_version: sdxl
+d_model: 1280  # Attention dimension
+default_resolution: 1024
+num_inference_steps: 4  # SDXL Turbo uses 4 steps
+guidance_scale: 0.0  # Turbo models don't use CFG (trained without it)
+
+# SAE checkpoint location
+sae_checkpoints: ${hydra:runtime.cwd}/checkpoints/sdxl-ckpts
+
+# Top-K for SAE
+top_k: 10
+
+# Block name mappings (shorthand -> full path)
+code_to_block:
+  down.2.1: unet.down_blocks.2.attentions.1
+  mid.0: unet.mid_block.attentions.0
+  up.0.1: unet.up_blocks.0.attentions.1
+  up.0.0: unet.up_blocks.0.attentions.0

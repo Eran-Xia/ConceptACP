@@ -1,0 +1,22 @@
+# Church object unlearning configuration
+
+# Concept identification
+unlearn_type: object_church
+img_class: church
+
+# Target block for fine-tuning
+code: down.2.1
+
+# Fine-tuning hyperparameter
+lambda_neg_c: 1.8  # Weight for retain set loss
+
+# Feature scales (feature_id: strength)
+# Automatically computed by feature_select.py
+feature_scales:
+  3799: -5.0
+  2005: -1.9
+  3551: -1.8
+  2495: -1.7
+  4008: -1.5
+  2831: -1.4
+  3912: -1.2

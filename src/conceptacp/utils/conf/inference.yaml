@@ -1,11 +1,46 @@
-defaults:
-  - data/default@_here_  # Load data config into current level (no nesting)
-  - _self_  # Allow this file to override
+# Configuration for inference.py
+# Composes model, task, unlearn, and paths into flat structure
 
+defaults:
+  - model: sdxl  # Override with model=sd15
+  - task/inference@_here_
+  - unlearn: nudity  # Override with unlearn=object_church, etc.
+  - _self_
+
+# Flatten model config into root level
+model_path: ${model.model_path}
+model_version: ${model.model_version}
+d_model: ${model.d_model}
+default_resolution: ${model.default_resolution}
+num_inference_steps: ${model.num_inference_steps}
+guidance_scale: ${model.guidance_scale}
+sae_checkpoints: ${model.sae_checkpoints}
+top_k: ${model.top_k}
+code_to_block: ${model.code_to_block}
+
+# Model ID for inference (alias of model_path for compatibility)
+model_id: ${model.model_path}
+
+# Flatten unlearn config into root level
+unlearn_type: ${unlearn.unlearn_type}
+img_class: ${unlearn.img_class}
+code: ${unlearn.code}
+
+# Flatten paths into root level
 work_dir: ${hydra:runtime.cwd}
-# model_path is inherited from data/default@_here_
-model_id: ${model_path}
-finetune_model_path: ${work_dir}/models/nudity_99_0.2_1.6.pt
-# output_path is inherited from data/default@_here_
-num_inference_steps: 100
-method: ConcepACP
+test_retain_prompts: ${work_dir}/data/test_prompts/retain.json
+test_forgot_prompts: ${work_dir}/data/test_prompts/forgot.json
+output_path: ${work_dir}/data/output/${model_version}_${unlearn_type}
+finetune_model_path: ${work_dir}/models
+finetune_config_dir: ${work_dir}/data/finetune_config
+
+# Checkpoint path (from task config, can be overridden)
+# Auto-constructed if null: {model_version}_{unlearn_type}_99_{lambda}_1.0_block.pt
+checkpoint_path: null
+
+# Hydra configuration
+hydra:
+  run:
+    dir: ${hydra:runtime.cwd}/outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  job:
+    chdir: false

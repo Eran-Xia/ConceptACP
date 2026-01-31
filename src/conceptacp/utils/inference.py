@@ -1,6 +1,5 @@
 import json
 import pathlib
-from conceptacp.sae.SDLens import HookedStableDiffusionXLPipeline
 import torch
 import os
 import matplotlib.pyplot as plt
@@ -17,26 +16,136 @@ device = torch.device("cuda:1")
 
 def setup_models(cfg):
     dtype = torch.float32
-    pipe1 = HookedStableDiffusionXLPipeline.from_pretrained(
-        cfg.model_path,
-        torch_dtype=dtype,
-        device_map="balanced",
-        variant=("fp16" if dtype==torch.float16 else None)
-    )
 
-    pipe2= HookedStableDiffusionXLPipeline.from_pretrained(
-        cfg.model_path,
-        torch_dtype=dtype,
-        device_map="balanced",
-        variant=("fp16" if dtype==torch.float16 else None)
-    )
-
-    checkpoint = torch.load(cfg.finetune_model_path, map_location="cuda")
-    if cfg.unlearn_type=="style_vangogh":
-        pipe2.pipe.unet.up_blocks[0].attentions[1].load_state_dict(checkpoint["model_state_dict"])
+    # Use original diffusers pipelines (no hooks needed for inference)
+    if cfg.model_version == 'sdxl':
+        from diffusers import StableDiffusionXLPipeline as Pipeline
+        print("Loading SDXL pipeline (original diffusers)")
+    elif cfg.model_version == 'sd15':
+        from diffusers import StableDiffusionPipeline as Pipeline
+        print("Loading SD 1.5 pipeline (original diffusers)")
     else:
-        pipe2.pipe.unet.down_blocks[2].attentions[1].load_state_dict(checkpoint["model_state_dict"])
-    pipe2.pipe.set_progress_bar_config(disable=True)
+        raise ValueError(f"Unknown model_version: {cfg.model_version}. Must be 'sdxl' or 'sd15'")
+
+    # Disable NSFW filter for SD 1.5 (needed for nudity concept erasure evaluation)
+    extra_kwargs = {}
+    if cfg.model_version == 'sd15':
+        extra_kwargs['safety_checker'] = None
+        extra_kwargs['requires_safety_checker'] = False
+        print("Disabled NSFW safety checker for SD 1.5")
+
+    # Load original pipeline
+    pipe1 = Pipeline.from_pretrained(
+        cfg.model_path,
+        torch_dtype=dtype,
+        device_map="balanced",
+        variant=("fp16" if dtype==torch.float16 else None),
+        **extra_kwargs
+    )
+
+    # Load fine-tuned pipeline
+    pipe2 = Pipeline.from_pretrained(
+        cfg.model_path,
+        torch_dtype=dtype,
+        device_map="balanced",
+        variant=("fp16" if dtype==torch.float16 else None),
+        **extra_kwargs
+    )
+
+    # Load finetune config to get the actual block used during fine-tuning
+    # This is important for SD 1.5 where the optimal block may differ from SDXL
+    finetune_config_dir = pathlib.Path(cfg.finetune_config_dir)
+    model_prefixed_file = finetune_config_dir / f"{cfg.model_version}_{cfg.unlearn_type}.json"
+    model_specific_file = finetune_config_dir / cfg.model_version / f"{cfg.unlearn_type}.json"
+    model_agnostic_file = finetune_config_dir / f"{cfg.unlearn_type}.json"
+
+    if model_prefixed_file.exists():
+        finetune_config_path = model_prefixed_file
+        print(f"Using model-prefixed feature config: {finetune_config_path}")
+    elif model_specific_file.exists():
+        finetune_config_path = model_specific_file
+        print(f"Using model-specific feature config (legacy): {finetune_config_path}")
+    elif model_agnostic_file.exists():
+        finetune_config_path = model_agnostic_file
+        print(f"Using model-agnostic feature config: {finetune_config_path}")
+    else:
+        finetune_config_path = None
+        print(f"No feature config found, using code from unlearn config: {cfg.code}")
+
+    # Get the actual block code from feature selection config
+    if finetune_config_path:
+        with open(finetune_config_path, 'r') as f:
+            finetune_config = json.load(f)
+            actual_block_code = finetune_config["block"][0]
+            print(f"Using block from feature config: {actual_block_code}")
+    else:
+        actual_block_code = cfg.code
+        print(f"Using block from unlearn config: {actual_block_code}")
+
+    # Construct checkpoint path if not provided
+    if cfg.checkpoint_path is None or cfg.checkpoint_path == "null":
+        # Get lambda_neg_c based on unlearn_type (matching finetune_block.py logic)
+        if cfg.unlearn_type == "object_church":
+            lambda_neg_c = 1.8
+        elif cfg.unlearn_type == "object_parachute":
+            lambda_neg_c = 2.0
+        else:
+            lambda_neg_c = 0.2
+
+        # Try new naming convention with model version first
+        checkpoint_filename_new = f"{cfg.model_version}_{cfg.unlearn_type}_99_{lambda_neg_c}_1.0_block.pt"
+        checkpoint_path_new = pathlib.Path(cfg.finetune_model_path) / checkpoint_filename_new
+
+        # Fallback to old naming convention without model version
+        checkpoint_filename_old = f"{cfg.unlearn_type}_99_{lambda_neg_c}_1.0_block.pt"
+        checkpoint_path_old = pathlib.Path(cfg.finetune_model_path) / checkpoint_filename_old
+
+        if checkpoint_path_new.exists():
+            checkpoint_path = checkpoint_path_new
+        elif checkpoint_path_old.exists():
+            checkpoint_path = checkpoint_path_old
+            print(f"Warning: Using old checkpoint naming convention. Consider retraining with new version.")
+        else:
+            raise FileNotFoundError(
+                f"Checkpoint not found. Tried:\n"
+                f"  - {checkpoint_path_new}\n"
+                f"  - {checkpoint_path_old}"
+            )
+    else:
+        checkpoint_path = pathlib.Path(cfg.checkpoint_path)
+
+    # Load fine-tuned checkpoint and inject into the correct block
+    print(f"Loading checkpoint from: {checkpoint_path}")
+    checkpoint = torch.load(checkpoint_path, map_location="cuda")
+
+    # Parse actual_block_code to load into correct block (e.g., "down.2.1", "up.0.1", "mid.0")
+    code = actual_block_code
+    block_type = code.split(".")[0]
+
+    if block_type == "down":
+        block_idx = int(code.split(".")[1])
+        attention_idx = int(code.split(".")[2])
+        pipe2.unet.down_blocks[block_idx].attentions[attention_idx].load_state_dict(
+            checkpoint["model_state_dict"]
+        )
+        print(f"Loaded fine-tuned weights into down_blocks.{block_idx}.attentions.{attention_idx}")
+    elif block_type == "up":
+        block_idx = int(code.split(".")[1])
+        attention_idx = int(code.split(".")[2])
+        pipe2.unet.up_blocks[block_idx].attentions[attention_idx].load_state_dict(
+            checkpoint["model_state_dict"]
+        )
+        print(f"Loaded fine-tuned weights into up_blocks.{block_idx}.attentions.{attention_idx}")
+    elif block_type == "mid":
+        block_idx = int(code.split(".")[1])
+        pipe2.unet.mid_block.attentions[block_idx].load_state_dict(
+            checkpoint["model_state_dict"]
+        )
+        print(f"Loaded fine-tuned weights into mid_block.attentions.{block_idx}")
+    else:
+        raise ValueError(f"Unsupported block type: {block_type}")
+
+    pipe2.set_progress_bar_config(disable=True)
 
     return pipe1, pipe2
     
@@ -49,7 +158,8 @@ def main(cfg: DictConfig):
     print(f"Output directory: {cfg.output_path}")
     print(f"Method: {cfg.method}")
     print(f"Unlearn type: {cfg.unlearn_type}")
-    print(f"Number of inference steps: {cfg.num_inference_steps}\n")
+    print(f"Number of inference steps: {cfg.num_inference_steps}")
+    print(f"Guidance scale: {cfg.guidance_scale}\n")
 
 
     with open(cfg.test_forgot_prompts, 'r') as f:
@@ -60,8 +170,8 @@ def main(cfg: DictConfig):
 
     num=0
     for img_class in forgot_prompts[cfg.unlearn_type]:
-        save_path = os.path.join(cfg.output_path, cfg.unlearn_type, "forgot", cfg.method)
-        save_path2 = os.path.join(cfg.output_path, cfg.unlearn_type, "forgot", "ori")
+        save_path = os.path.join(cfg.output_path, "forgot", cfg.method)
+        save_path2 = os.path.join(cfg.output_path, "forgot", "ori")
         os.makedirs(save_path, exist_ok=True)
         os.makedirs(save_path2, exist_ok=True)
         print(f"Processing forgot prompts for class: {img_class}")
@@ -69,10 +179,36 @@ def main(cfg: DictConfig):
         print(f"  Saving original images to: {save_path2}")
         for i, prompt in enumerate(forgot_prompts[cfg.unlearn_type][img_class]):
             print(f"  Generating image {num+1} with prompt: {prompt[:50]}...")
-            images = pipe2(prompt, guidance_scale=0.0,num_images_per_prompt=1, num_inference_steps=cfg.num_inference_steps, generator=torch.Generator(device="cpu").manual_seed(42)).images
+            images = pipe2(prompt, guidance_scale=cfg.guidance_scale, num_images_per_prompt=1, num_inference_steps=cfg.num_inference_steps, generator=torch.Generator(device="cpu").manual_seed(42)).images
             for k, img in enumerate(images):
                 img.save(F"{save_path}/{num}_{k}.png")
-            images = pipe1(prompt, guidance_scale=0.0,num_images_per_prompt=1, num_inference_steps=cfg.num_inference_steps, generator=torch.Generator(device="cpu").manual_seed(42)).images
+            images = pipe1(prompt, guidance_scale=cfg.guidance_scale, num_images_per_prompt=1, num_inference_steps=cfg.num_inference_steps, generator=torch.Generator(device="cpu").manual_seed(42)).images
+            for k, img in enumerate(images):
+                img.save(F"{save_path2}/{num}_{k}.png")
+            num=num+1
+
+    print(f"\n✓ Inference complete! Images saved to {cfg.output_path}")
+    print(f"  Total images generated: {num}")
+
+    num=0
+    for img_class in retain_prompts[cfg.unlearn_type]:
+        if cfg.unlearn_type=="nudity" or cfg.unlearn_type=="style_vangogh":
+            save_path = os.path.join(cfg.output_path, "remove_word", cfg.method)
+            save_path2 = os.path.join(cfg.output_path,  "remove_word", "ori")
+        else:
+            save_path = os.path.join(cfg.output_path,  "unrelated", cfg.method,img_class)
+            save_path2 = os.path.join(cfg.output_path,  "unrelated", "ori",img_class)
+        os.makedirs(save_path, exist_ok=True)
+        os.makedirs(save_path2, exist_ok=True)
+        print(f"Processing retain_prompts for class: {img_class}")
+        print(f"  Saving fine-tuned images to: {save_path}")
+        print(f"  Saving original images to: {save_path2}")
+        for i, prompt in enumerate(retain_prompts[cfg.unlearn_type][img_class]):
+            print(f"  Generating image {num+1} with prompt: {prompt[:50]}...")
+            images = pipe2(prompt, guidance_scale=cfg.guidance_scale, num_images_per_prompt=1, num_inference_steps=cfg.num_inference_steps, generator=torch.Generator(device="cpu").manual_seed(42)).images
+            for k, img in enumerate(images):
+                img.save(F"{save_path}/{num}_{k}.png")
+            images = pipe1(prompt, guidance_scale=cfg.guidance_scale, num_images_per_prompt=1, num_inference_steps=cfg.num_inference_steps, generator=torch.Generator(device="cpu").manual_seed(42)).images
             for k, img in enumerate(images):
                 img.save(F"{save_path2}/{num}_{k}.png")
             num=num+1
