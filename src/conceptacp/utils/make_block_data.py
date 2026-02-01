@@ -100,10 +100,11 @@ def encode_and_scale_sae(sae, diff_reshaped, feature_scales, model_version):
 class BlockInputCapturer:
     """Captures inputs and outputs for a specific attention block."""
 
-    def __init__(self, guidance_scale=0.0):
+    def __init__(self, guidance_scale=0.0, split_cfg=False):
         self.inputs = []
         self.outputs = []
         self.guidance_scale = guidance_scale
+        self.split_cfg = split_cfg  # If True, store conditional and unconditional separately
 
     def _extract_conditional(self, tensor):
         """Extract conditional part when using classifier-free guidance.
@@ -123,6 +124,23 @@ class BlockInputCapturer:
         # No CFG or already single batch
         return tensor
 
+    def _split_cfg(self, tensor):
+        """Split tensor into unconditional and conditional parts.
+
+        Returns (unconditional, conditional) or (None, tensor) if no CFG.
+        """
+        if tensor is None:
+            return None, None
+
+        if self.guidance_scale > 1.0:
+            batch_size = tensor.shape[0]
+            if batch_size % 2 == 0 and batch_size >= 2:
+                # Split doubled batch: [uncond, cond]
+                uncond, cond = tensor.chunk(2)
+                return uncond, cond
+        # No CFG or already single batch
+        return None, tensor
+
     def capture_hook(self, module, input_tuple, kwargs, output):
         """Hook that captures both inputs and outputs of the attention block."""
         # Store the input args and kwargs
@@ -131,28 +149,55 @@ class BlockInputCapturer:
         encoder_hidden_states = kwargs.get('encoder_hidden_states', None)
         attention_mask = kwargs.get('attention_mask', None)
 
-        # Extract conditional parts if using CFG
-        hidden_states = self._extract_conditional(hidden_states)
-        encoder_hidden_states = self._extract_conditional(encoder_hidden_states) if encoder_hidden_states is not None else None
-        attention_mask = self._extract_conditional(attention_mask) if attention_mask is not None else None
-
-        input_data = {
-            'hidden_states': hidden_states.cpu(),
-            'encoder_hidden_states': encoder_hidden_states.cpu() if encoder_hidden_states is not None else None,
-            'attention_mask': attention_mask.cpu() if attention_mask is not None else None,
-        }
-
         # Handle output (might be tuple or tensor)
         if isinstance(output, tuple):
             output_tensor = output[0].detach()
         else:
             output_tensor = output.detach()
 
-        # Extract conditional part of output
-        output_tensor = self._extract_conditional(output_tensor).cpu()
+        if self.split_cfg and self.guidance_scale > 1.0:
+            # Split both conditional and unconditional parts
+            uncond_hidden, cond_hidden = self._split_cfg(hidden_states)
+            uncond_encoder, cond_encoder = self._split_cfg(encoder_hidden_states)
+            uncond_mask, cond_mask = self._split_cfg(attention_mask)
+            uncond_output, cond_output = self._split_cfg(output_tensor)
 
-        self.inputs.append(input_data)
-        self.outputs.append(output_tensor)
+            # Store conditional data
+            input_data_cond = {
+                'hidden_states': cond_hidden.cpu(),
+                'encoder_hidden_states': cond_encoder.cpu() if cond_encoder is not None else None,
+                'attention_mask': cond_mask.cpu() if cond_mask is not None else None,
+                'is_unconditional': False,
+            }
+            self.inputs.append(input_data_cond)
+            self.outputs.append(cond_output.cpu())
+
+            # Store unconditional data (if present)
+            if uncond_hidden is not None:
+                input_data_uncond = {
+                    'hidden_states': uncond_hidden.cpu(),
+                    'encoder_hidden_states': uncond_encoder.cpu() if uncond_encoder is not None else None,
+                    'attention_mask': uncond_mask.cpu() if uncond_mask is not None else None,
+                    'is_unconditional': True,
+                }
+                self.inputs.append(input_data_uncond)
+                self.outputs.append(uncond_output.cpu())
+        else:
+            # Original behavior: extract only conditional parts
+            hidden_states = self._extract_conditional(hidden_states)
+            encoder_hidden_states = self._extract_conditional(encoder_hidden_states) if encoder_hidden_states is not None else None
+            attention_mask = self._extract_conditional(attention_mask) if attention_mask is not None else None
+            output_tensor = self._extract_conditional(output_tensor)
+
+            input_data = {
+                'hidden_states': hidden_states.cpu(),
+                'encoder_hidden_states': encoder_hidden_states.cpu() if encoder_hidden_states is not None else None,
+                'attention_mask': attention_mask.cpu() if attention_mask is not None else None,
+                'is_unconditional': False,
+            }
+
+            self.inputs.append(input_data)
+            self.outputs.append(output_tensor.cpu())
 
     def reset(self):
         """Clear captured data."""
@@ -317,7 +362,11 @@ def main(cfg: DictConfig):
 
     # ===== Process FORGOT prompts (with SAE modification) =====
     print("\n=== Processing FORGOT prompts ===")
-    capturer = BlockInputCapturer(guidance_scale=cfg.guidance_scale)
+    # For SD 1.5, split CFG to store both conditional and unconditional parts
+    split_cfg = (cfg.model_version == 'sd15' and cfg.guidance_scale > 1.0)
+    if split_cfg:
+        print("SD 1.5 CFG detected: Will store both conditional and unconditional data separately")
+    capturer = BlockInputCapturer(guidance_scale=cfg.guidance_scale, split_cfg=split_cfg)
 
     # Create output directory
     os.makedirs(recons_save_path, exist_ok=True)
@@ -404,31 +453,89 @@ def main(cfg: DictConfig):
         # For forgot prompts, we need to save timestep inputs with the modified output
         num_timesteps = len(capturer.inputs)
 
-        for t_idx in range(num_timesteps):
+        # When split_cfg=True, we have 2 entries per timestep (uncond + cond)
+        # When split_cfg=False, we have 1 entry per timestep (cond only or no CFG)
+        entries_per_timestep = 2 if split_cfg else 1
+        actual_num_timesteps = num_timesteps // entries_per_timestep
+
+        for t_idx in range(actual_num_timesteps):
             # Skip this timestep if not in the capture list
             if not capture_all and t_idx not in timesteps_to_capture:
                 continue
 
-            input_data = capturer.inputs[t_idx]
+            # When split_cfg=True, data is organized as:
+            # [t0_cond, t0_uncond, t1_cond, t1_uncond, ...]
+            # When split_cfg=False, data is organized as:
+            # [t0_cond, t1_cond, ...]
+            if split_cfg:
+                # Get both conditional and unconditional for this timestep
+                cond_idx = t_idx * 2
+                uncond_idx = t_idx * 2 + 1
 
-            # Save each timestep as a separate sample
-            writer.write({
-                "__key__": f"forgot_{idx}_t{t_idx}",
-                "input.pth": {
-                    'hidden_states': input_data['hidden_states'].half(),
-                    'encoder_hidden_states': input_data['encoder_hidden_states'].half() if input_data['encoder_hidden_states'] is not None else None,
-                    'attention_mask': input_data['attention_mask'].half() if input_data['attention_mask'] is not None else None,
-                },
-                "target.pth": target_output[:, t_idx:t_idx+1].half().cpu(),  # Single timestep
-                "metadata.json": {
-                    'prompt': prompt,
-                    'timestep_idx': t_idx,
-                    'type': 'forgot',
-                    'total_timesteps': num_timesteps,
-                    'block_code': finetune_block,  # Short code (e.g., "up.1.2")
-                    'block_name': block_name  # Full name (e.g., "up_blocks.1.attentions.2")
-                }
-            })
+                input_data_cond = capturer.inputs[cond_idx]
+                input_data_uncond = capturer.inputs[uncond_idx]
+
+                # Save conditional sample
+                writer.write({
+                    "__key__": f"forgot_{idx}_t{t_idx}_cond",
+                    "input.pth": {
+                        'hidden_states': input_data_cond['hidden_states'].half(),
+                        'encoder_hidden_states': input_data_cond['encoder_hidden_states'].half() if input_data_cond['encoder_hidden_states'] is not None else None,
+                        'attention_mask': input_data_cond['attention_mask'].half() if input_data_cond['attention_mask'] is not None else None,
+                    },
+                    "target.pth": target_output[:, t_idx:t_idx+1].half().cpu(),  # Single timestep
+                    "metadata.json": {
+                        'prompt': prompt,
+                        'timestep_idx': t_idx,
+                        'type': 'forgot',
+                        'is_unconditional': False,
+                        'total_timesteps': actual_num_timesteps,
+                        'block_code': finetune_block,  # Short code (e.g., "up.1.2")
+                        'block_name': block_name  # Full name (e.g., "up_blocks.1.attentions.2")
+                    }
+                })
+
+                # Save unconditional sample
+                writer.write({
+                    "__key__": f"forgot_{idx}_t{t_idx}_uncond",
+                    "input.pth": {
+                        'hidden_states': input_data_uncond['hidden_states'].half(),
+                        'encoder_hidden_states': input_data_uncond['encoder_hidden_states'].half() if input_data_uncond['encoder_hidden_states'] is not None else None,
+                        'attention_mask': input_data_uncond['attention_mask'].half() if input_data_uncond['attention_mask'] is not None else None,
+                    },
+                    "target.pth": target_output[:, t_idx:t_idx+1].half().cpu(),  # Single timestep (same target)
+                    "metadata.json": {
+                        'prompt': prompt,
+                        'timestep_idx': t_idx,
+                        'type': 'forgot',
+                        'is_unconditional': True,
+                        'total_timesteps': actual_num_timesteps,
+                        'block_code': finetune_block,
+                        'block_name': block_name
+                    }
+                })
+            else:
+                # Original behavior: single conditional sample per timestep
+                input_data = capturer.inputs[t_idx]
+
+                writer.write({
+                    "__key__": f"forgot_{idx}_t{t_idx}",
+                    "input.pth": {
+                        'hidden_states': input_data['hidden_states'].half(),
+                        'encoder_hidden_states': input_data['encoder_hidden_states'].half() if input_data['encoder_hidden_states'] is not None else None,
+                        'attention_mask': input_data['attention_mask'].half() if input_data['attention_mask'] is not None else None,
+                    },
+                    "target.pth": target_output[:, t_idx:t_idx+1].half().cpu(),  # Single timestep
+                    "metadata.json": {
+                        'prompt': prompt,
+                        'timestep_idx': t_idx,
+                        'type': 'forgot',
+                        'is_unconditional': False,
+                        'total_timesteps': actual_num_timesteps,
+                        'block_code': finetune_block,  # Short code (e.g., "up.1.2")
+                        'block_name': block_name  # Full name (e.g., "up_blocks.1.attentions.2")
+                    }
+                })
 
         if (idx + 1) % 10 == 0:
             print(f"Processed {idx + 1}/{len(forgot_prompts)} forgot prompts")
@@ -464,31 +571,83 @@ def main(cfg: DictConfig):
         target_output = cache["output"][block_name].to(device)
 
         num_timesteps = len(capturer.inputs)
+        entries_per_timestep = 2 if split_cfg else 1
+        actual_num_timesteps = num_timesteps // entries_per_timestep
 
-        for t_idx in range(num_timesteps):
+        for t_idx in range(actual_num_timesteps):
             # Skip this timestep if not in the capture list
             if not capture_all and t_idx not in timesteps_to_capture:
                 continue
 
-            input_data = capturer.inputs[t_idx]
+            if split_cfg:
+                # Get both conditional and unconditional for this timestep
+                cond_idx = t_idx * 2
+                uncond_idx = t_idx * 2 + 1
 
-            writer.write({
-                "__key__": f"retain_{idx}_t{t_idx}",
-                "input.pth": {
-                    'hidden_states': input_data['hidden_states'].half(),
-                    'encoder_hidden_states': input_data['encoder_hidden_states'].half() if input_data['encoder_hidden_states'] is not None else None,
-                    'attention_mask': input_data['attention_mask'].half() if input_data['attention_mask'] is not None else None,
-                },
-                "target.pth": target_output[:, t_idx:t_idx+1].half().cpu(),
-                "metadata.json": {
-                    'prompt': prompt,
-                    'timestep_idx': t_idx,
-                    'type': 'retain',
-                    'total_timesteps': num_timesteps,
-                    'block_code': finetune_block,  # Short code (e.g., "up.1.2")
-                    'block_name': block_name  # Full name (e.g., "up_blocks.1.attentions.2")
-                }
-            })
+                input_data_cond = capturer.inputs[cond_idx]
+                input_data_uncond = capturer.inputs[uncond_idx]
+
+                # Save conditional sample
+                writer.write({
+                    "__key__": f"retain_{idx}_t{t_idx}_cond",
+                    "input.pth": {
+                        'hidden_states': input_data_cond['hidden_states'].half(),
+                        'encoder_hidden_states': input_data_cond['encoder_hidden_states'].half() if input_data_cond['encoder_hidden_states'] is not None else None,
+                        'attention_mask': input_data_cond['attention_mask'].half() if input_data_cond['attention_mask'] is not None else None,
+                    },
+                    "target.pth": target_output[:, t_idx:t_idx+1].half().cpu(),
+                    "metadata.json": {
+                        'prompt': prompt,
+                        'timestep_idx': t_idx,
+                        'type': 'retain',
+                        'is_unconditional': False,
+                        'total_timesteps': actual_num_timesteps,
+                        'block_code': finetune_block,  # Short code (e.g., "up.1.2")
+                        'block_name': block_name  # Full name (e.g., "up_blocks.1.attentions.2")
+                    }
+                })
+
+                # Save unconditional sample
+                writer.write({
+                    "__key__": f"retain_{idx}_t{t_idx}_uncond",
+                    "input.pth": {
+                        'hidden_states': input_data_uncond['hidden_states'].half(),
+                        'encoder_hidden_states': input_data_uncond['encoder_hidden_states'].half() if input_data_uncond['encoder_hidden_states'] is not None else None,
+                        'attention_mask': input_data_uncond['attention_mask'].half() if input_data_uncond['attention_mask'] is not None else None,
+                    },
+                    "target.pth": target_output[:, t_idx:t_idx+1].half().cpu(),
+                    "metadata.json": {
+                        'prompt': prompt,
+                        'timestep_idx': t_idx,
+                        'type': 'retain',
+                        'is_unconditional': True,
+                        'total_timesteps': actual_num_timesteps,
+                        'block_code': finetune_block,
+                        'block_name': block_name
+                    }
+                })
+            else:
+                # Original behavior: single conditional sample per timestep
+                input_data = capturer.inputs[t_idx]
+
+                writer.write({
+                    "__key__": f"retain_{idx}_t{t_idx}",
+                    "input.pth": {
+                        'hidden_states': input_data['hidden_states'].half(),
+                        'encoder_hidden_states': input_data['encoder_hidden_states'].half() if input_data['encoder_hidden_states'] is not None else None,
+                        'attention_mask': input_data['attention_mask'].half() if input_data['attention_mask'] is not None else None,
+                    },
+                    "target.pth": target_output[:, t_idx:t_idx+1].half().cpu(),
+                    "metadata.json": {
+                        'prompt': prompt,
+                        'timestep_idx': t_idx,
+                        'type': 'retain',
+                        'is_unconditional': False,
+                        'total_timesteps': actual_num_timesteps,
+                        'block_code': finetune_block,  # Short code (e.g., "up.1.2")
+                        'block_name': block_name  # Full name (e.g., "up_blocks.1.attentions.2")
+                    }
+                })
 
         if (idx + 1) % 10 == 0:
             print(f"Processed {idx + 1}/{len(retain_prompts)} retain prompts")
@@ -502,12 +661,24 @@ def main(cfg: DictConfig):
     print(f"  Forgot prompts: {len(forgot_prompts)}")
     print(f"  Retain prompts: {len(retain_prompts)}")
     print(f"  Inference steps: {cfg.num_inference_steps}")
+
+    # Calculate expected samples based on CFG splitting
+    samples_per_prompt_timestep = 2 if split_cfg else 1
+
     if capture_all:
         print(f"  Timesteps captured: all ({cfg.num_inference_steps} per prompt)")
-        print(f"  Expected total samples: {len(forgot_prompts) * cfg.num_inference_steps} forgot + {len(retain_prompts) * cfg.num_inference_steps} retain")
+        if split_cfg:
+            print(f"  CFG split: storing both conditional and unconditional (2x samples)")
+        forgot_samples = len(forgot_prompts) * cfg.num_inference_steps * samples_per_prompt_timestep
+        retain_samples = len(retain_prompts) * cfg.num_inference_steps * samples_per_prompt_timestep
+        print(f"  Expected total samples: {forgot_samples} forgot + {retain_samples} retain")
     else:
         print(f"  Timesteps captured: {sorted(timesteps_to_capture)}")
-        print(f"  Expected total samples: {len(forgot_prompts) * len(timesteps_to_capture)} forgot + {len(retain_prompts) * len(timesteps_to_capture)} retain")
+        if split_cfg:
+            print(f"  CFG split: storing both conditional and unconditional (2x samples)")
+        forgot_samples = len(forgot_prompts) * len(timesteps_to_capture) * samples_per_prompt_timestep
+        retain_samples = len(retain_prompts) * len(timesteps_to_capture) * samples_per_prompt_timestep
+        print(f"  Expected total samples: {forgot_samples} forgot + {retain_samples} retain")
     print(f"\nFiles saved:")
     print(f"  Forgot: {forgot_filename}")
     print(f"  Retain: {retain_filename}")
