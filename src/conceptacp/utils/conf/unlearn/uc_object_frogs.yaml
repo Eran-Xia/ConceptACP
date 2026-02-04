@@ -1,0 +1,8 @@
+# UnlearnCanvas Object Erasure: Frogs
+unlearn_type: uc_object_frogs
+target_type: object
+target_name: Frogs
+img_class: ${unlearn.target_name}
+code: down.2.1
+lambda_neg_c: 0.2
+feature_scales: {}

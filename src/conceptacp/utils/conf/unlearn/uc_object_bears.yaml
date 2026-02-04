@@ -1,0 +1,24 @@
+# UnlearnCanvas Object Erasure: Bears
+# Example config for erasing Bears
+# Usage:
+#   unlearn=uc_object_bears unlearncanvas_resources_path=/path/to/UnlearnCanvas_resources
+# For other objects:
+#   unlearn=uc_object_bears unlearn.target_name=Cats unlearncanvas_resources_path=/path
+
+unlearn_type: uc_object_bears
+target_type: object  # 'style' or 'object'
+target_name: Bears  # The specific object to erase
+
+# img_class is used by legacy code, set to target_name
+img_class: ${unlearn.target_name}
+
+# Block to fine-tune (will be auto-selected by feature_select.py)
+code: down.2.1
+
+# Loss weight for negative concept (higher = stronger erasure)
+lambda_neg_c: 0.2
+
+# Feature scales from automated feature selection
+# Will be populated by feature_select.py
+feature_scales: {}
+

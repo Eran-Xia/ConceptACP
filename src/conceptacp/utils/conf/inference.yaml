@@ -23,6 +23,8 @@ model_id: ${model.model_path}
 
 # Flatten unlearn config into root level
 unlearn_type: ${unlearn.unlearn_type}
+target_type: ${unlearn.target_type}
+target_name: ${unlearn.target_name}
 img_class: ${unlearn.img_class}
 code: ${unlearn.code}
 
@@ -33,6 +35,9 @@ test_forgot_prompts: ${work_dir}/data/test_prompts/forgot.json
 output_path: ${work_dir}/data/output/${model_version}_${unlearn_type}
 finetune_model_path: ${work_dir}/models
 finetune_config_dir: ${work_dir}/data/finetune_config
+
+# UnlearnCanvas resources path (for dynamic test prompt generation)
+unlearncanvas_resources_path: null  # Override with unlearncanvas_resources_path=/path/to/UnlearnCanvas_resources
 
 # Checkpoint path (from task config, can be overridden)
 # Auto-constructed if null: {model_version}_{unlearn_type}_99_{lambda}_1.0_block.pt

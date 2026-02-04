@@ -376,8 +376,26 @@ def main(cfg: DictConfig):
 
     # Load prompts
     logger.info("\nLoading prompts...")
-    with open(cfg.retain_prompts, 'r') as f:
-        retain_prompts = json.load(f)
+
+    # Check if this is an UnlearnCanvas task (starts with 'uc_')
+    is_unlearncanvas = cfg.get('unlearn_type', '').startswith('uc_')
+
+    if is_unlearncanvas:
+        # For UnlearnCanvas: use retain_featureselect.json for feature selection
+        logger.info("UnlearnCanvas task detected - using retain_featureselect.json")
+        retain_featureselect_file = pathlib.Path(cfg.work_dir) / "data/train_prompts/retain_featureselect.json"
+        if retain_featureselect_file.exists():
+            with open(retain_featureselect_file, 'r') as f:
+                retain_prompts = json.load(f)
+            logger.info(f"  Loaded retain prompts from {retain_featureselect_file}")
+        else:
+            logger.warning(f"retain_featureselect.json not found at {retain_featureselect_file}, falling back to retain.json")
+            with open(cfg.retain_prompts, 'r') as f:
+                retain_prompts = json.load(f)
+    else:
+        with open(cfg.retain_prompts, 'r') as f:
+            retain_prompts = json.load(f)
+
     with open(cfg.forgot_prompts, 'r') as f:
         forgot_prompts = json.load(f)
 

@@ -1,0 +1,8 @@
+# UnlearnCanvas Object Erasure: Horses
+unlearn_type: uc_object_horses
+target_type: object
+target_name: Horses
+img_class: ${unlearn.target_name}
+code: down.2.1
+lambda_neg_c: 0.2
+feature_scales: {}

@@ -4,6 +4,7 @@
 defaults:
   - model: sdxl  # Override with model=sd15
   - task/feature_select@_here_
+  - optional unlearn: nudity  # Override with unlearn=uc_object_horses
   - _self_
 
 # Flatten model config into root level
@@ -23,8 +24,8 @@ retain_prompts: ${work_dir}/data/train_prompts/retain.json
 forgot_prompts: ${work_dir}/data/train_prompts/forgot.json
 finetune_config_dir: ${work_dir}/data/finetune_config
 
-# Process specific unlearn_type or 'all' (feature_select uses this differently)
-unlearn_type: all  # Can be overridden with unlearn_type=nudity
+# Unlearn type - can be set from unlearn config or directly
+unlearn_type: ${unlearn.unlearn_type}  # Gets value from unlearn config group
 
 # Hydra configuration
 hydra:

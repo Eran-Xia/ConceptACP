@@ -18,7 +18,7 @@ top_k: 10
 # Using SAeUron checkpoint locations
 code_to_block:
   up.1.1: unet.up_blocks.1.attentions.1
-  up.1.2: unet.up_blocks.1.attentions.2
+  up.1.2: unet.up_blocks.1.attentions.2  # SAE checkpoint not available
   # Compatibility mappings: SDXL codes mapped to available SD 1.5 blocks
   # Use up.1.1 as default for concepts that use down.2.1 in SDXL
   # down.2.1: unet.up_blocks.1.attentions.1

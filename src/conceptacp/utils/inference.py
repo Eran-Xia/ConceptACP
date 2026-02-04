@@ -2,6 +2,7 @@ import json
 import pathlib
 import torch
 import os
+import sys
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 import numpy as np
@@ -11,6 +12,67 @@ from omegaconf import DictConfig
 # from datasets import load_dataset
 
 device = torch.device("cuda:1")
+
+
+def load_unlearncanvas_constants(resources_path):
+    """Load UnlearnCanvas style and object lists from const.py"""
+    const_path = pathlib.Path(resources_path) / "const.py"
+    if not const_path.exists():
+        raise FileNotFoundError(f"const.py not found at {const_path}")
+
+    # Add the resources path to Python path temporarily
+    sys.path.insert(0, str(resources_path))
+    try:
+        from const import theme_available, class_available
+        return theme_available, class_available
+    finally:
+        sys.path.pop(0)
+
+
+def generate_unlearncanvas_test_prompts(unlearn_type, target_name, resources_path):
+    """Generate test prompts for UnlearnCanvas tasks dynamically.
+
+    Args:
+        unlearn_type: e.g., 'uc_style_vangogh' or 'uc_object_bears'
+        target_name: e.g., 'Van_Gogh' or 'Bears'
+        resources_path: Path to UnlearnCanvas_resources
+
+    Returns:
+        forgot_prompts: Dict with prompts for the target concept
+        retain_prompts: Dict with prompts for other concepts
+    """
+    styles, objects = load_unlearncanvas_constants(resources_path)
+
+    forgot_prompts = {}
+    retain_prompts = {}
+
+    if unlearn_type.startswith('uc_style_'):
+        # Style erasure: forgot = all objects in target style, retain = target style excluded
+        forgot_prompts[unlearn_type] = {
+            "style": [f"An image of {obj} in {target_name} style" for obj in objects]
+        }
+        # Retain: same objects but in other styles (sample a few)
+        other_styles = [s for s in styles if s != target_name][:5]  # Use 5 other styles
+        retain_prompts[unlearn_type] = {}
+        for style in other_styles:
+            retain_prompts[unlearn_type][style] = [
+                f"An image of {obj} in {style} style" for obj in objects[:5]  # 5 objects per style
+            ]
+    else:  # uc_object_*
+        # Object erasure: forgot = target object in all styles, retain = other objects
+        forgot_prompts[unlearn_type] = {
+            "object": [f"An image of {target_name} in {style} style" for style in styles]
+        }
+        # Retain: other objects in various styles
+        other_objects = [o for o in objects if o != target_name]
+        retain_prompts[unlearn_type] = {}
+        for obj in other_objects:
+            retain_prompts[unlearn_type][obj] = [
+                f"An image of {obj} in {style} style" for style in styles[:5]  # 5 styles per object
+            ]
+
+    return forgot_prompts, retain_prompts
+
 
 # Load the Pipeline
 
@@ -161,12 +223,39 @@ def main(cfg: DictConfig):
     print(f"Number of inference steps: {cfg.num_inference_steps}")
     print(f"Guidance scale: {cfg.guidance_scale}\n")
 
+    # Check if this is an UnlearnCanvas task
+    is_unlearncanvas = cfg.unlearn_type.startswith('uc_')
 
-    with open(cfg.test_forgot_prompts, 'r') as f:
-        forgot_prompts = json.load(f)
+    if is_unlearncanvas and cfg.unlearncanvas_resources_path:
+        # Dynamic prompt generation for UnlearnCanvas
+        print("UnlearnCanvas task detected - generating test prompts dynamically")
 
-    with open(cfg.test_retain_prompts, 'r') as f:
-        retain_prompts = json.load(f)
+        # Extract target name: try target_name first, then img_class, then derive from unlearn_type
+        if hasattr(cfg, 'target_name') and cfg.target_name:
+            target_name = cfg.target_name
+        elif hasattr(cfg, 'img_class') and cfg.img_class:
+            # img_class might be a string or list
+            target_name = cfg.img_class if isinstance(cfg.img_class, str) else cfg.img_class[0]
+        else:
+            # Derive from unlearn_type: uc_object_horses -> Horses
+            target_name = cfg.unlearn_type.replace('uc_style_', '').replace('uc_object_', '').replace('_', ' ').title()
+
+        print(f"Target concept: {target_name}")
+
+        forgot_prompts, retain_prompts = generate_unlearncanvas_test_prompts(
+            cfg.unlearn_type,
+            target_name,
+            cfg.unlearncanvas_resources_path
+        )
+        print(f"Generated {sum(len(v) for v in forgot_prompts[cfg.unlearn_type].values())} forgot prompts")
+        print(f"Generated {sum(len(v) for k in retain_prompts[cfg.unlearn_type] for v in retain_prompts[cfg.unlearn_type][k])} retain prompts")
+    else:
+        # Load from JSON files (original behavior)
+        with open(cfg.test_forgot_prompts, 'r') as f:
+            forgot_prompts = json.load(f)
+
+        with open(cfg.test_retain_prompts, 'r') as f:
+            retain_prompts = json.load(f)
 
     num=0
     for img_class in forgot_prompts[cfg.unlearn_type]:
@@ -192,12 +281,22 @@ def main(cfg: DictConfig):
 
     num=0
     for img_class in retain_prompts[cfg.unlearn_type]:
-        if cfg.unlearn_type=="nudity" or cfg.unlearn_type=="style_vangogh":
+        # Determine if this is an UnlearnCanvas task (starts with 'uc_')
+        is_unlearncanvas = cfg.unlearn_type.startswith('uc_')
+
+        if is_unlearncanvas:
+            # UnlearnCanvas: save to unrelated/{class}/
+            save_path = os.path.join(cfg.output_path,  "unrelated", cfg.method, img_class)
+            save_path2 = os.path.join(cfg.output_path,  "unrelated", "ori", img_class)
+        elif cfg.unlearn_type == "nudity" or cfg.unlearn_type == "style_vangogh":
+            # Original ConceptACP: save to remove_word/
             save_path = os.path.join(cfg.output_path, "remove_word", cfg.method)
             save_path2 = os.path.join(cfg.output_path,  "remove_word", "ori")
         else:
-            save_path = os.path.join(cfg.output_path,  "unrelated", cfg.method,img_class)
-            save_path2 = os.path.join(cfg.output_path,  "unrelated", "ori",img_class)
+            # Other object erasure tasks: save to unrelated/{class}/
+            save_path = os.path.join(cfg.output_path,  "unrelated", cfg.method, img_class)
+            save_path2 = os.path.join(cfg.output_path,  "unrelated", "ori", img_class)
+
         os.makedirs(save_path, exist_ok=True)
         os.makedirs(save_path2, exist_ok=True)
         print(f"Processing retain_prompts for class: {img_class}")
