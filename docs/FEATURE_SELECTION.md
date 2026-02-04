@@ -189,7 +189,7 @@ ConceptACP Feature Selection
 ================================================================================
 Model version: sdxl
 Model path: stabilityai/sdxl-turbo
-SAE checkpoints: /home/xiahyr/ConceptACP/checkpoints
+SAE checkpoints: /ConceptACP/checkpoints
 Device: cuda:0
 Blocks to analyze: ['down.2.1', 'mid.0', 'up.0.1', 'up.0.0']
 

@@ -44,10 +44,6 @@ checkpoints/
 
 2. **`src/conceptacp/utils/conf/data/sd15.yaml`**
    ```yaml
-   # Before
-   sae_checkpoints: /home/xiahyr/SAeUron/sae-ckpts
-
-   # After
    sae_checkpoints: ${work_dir}/checkpoints/sd1.5-sae-ckpts
    ```
 
