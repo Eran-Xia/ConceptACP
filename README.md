@@ -33,7 +33,7 @@ uv sync
 
 ### Basic Usage
 
-**Erase nudity from SDXL (default):**
+**Erase nudity from SDXL-Turbo/SDXL (default):**
 
 ```bash
 # 1. Automatically select discriminative features
@@ -63,10 +63,10 @@ uv run src/conceptacp/utils/inference.py model=sd15 unlearn_type=nudity
 
 Pre-configured erasure targets:
 
-- `nudity`: Removes NSFW content (default: SDXL `down.2.1` block, λ=0.2)
-- `object_church`: Removes church objects (SDXL `down.2.1` block, λ=1.8)
-- `object_parachute`: Removes parachutes (SDXL `down.2.1` block, λ=2.0)
-- `style_vangogh`: Removes Van Gogh artistic style (SDXL `up.0.1` block, λ=0.2)
+- `nudity`: Removes NSFW content (default: SDXL-Turbo `down.2.1` block, λ=0.2)
+- `object_church`: Removes church objects (SDXL-Turbo `down.2.1` block, λ=1.8)
+- `object_parachute`: Removes parachutes (SDXL-Turbo `down.2.1` block, λ=2.0)
+- `style_vangogh`: Removes Van Gogh artistic style (SDXL-Turbo `up.0.1` block, λ=0.2)
 
 Use any concept with `unlearn_type=<concept>`.
 
@@ -236,7 +236,7 @@ ConceptACP/
 
 Pre-trained SAE checkpoints are required:
 
-- **SDXL**: Download from [link] and place in `checkpoints/sdxl-ckpts/`
+- **SDXL-Turbo/SDXL**: Download from [link] and place in `checkpoints/sdxl-ckpts/`
 - **SD 1.5**: Download from [SAeUron](https://github.com/yourusername/SAeUron) and place in `checkpoints/sd1.5-sae-ckpts/`
 
 See [checkpoints/README.md](checkpoints/README.md) for details.
@@ -259,5 +259,5 @@ If you use ConceptACP in your research, please cite:
 
 ## Acknowledgments
 
-- SAE implementation inspired by [SAeUron](https://github.com/yourusername/SAeUron)
+- SAE implementation inspired by [SDXL-unbox](https://github.com/surkovv/sdxl-unbox) and [SAeUron](https://github.com/yourusername/SAeUron)
 - Built on [Diffusers](https://github.com/huggingface/diffusers) by Hugging Face
