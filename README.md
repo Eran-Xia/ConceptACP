@@ -236,7 +236,7 @@ ConceptACP/
 
 Pre-trained SAE checkpoints are required:
 
-- **SDXL-Turbo/SDXL**: Download from [link] and place in `checkpoints/sdxl-ckpts/`
+- **SDXL-Turbo/SDXL**: Download from [SDXL-unbox](https://github.com/surkovv/sdxl-unbox) and place in `checkpoints/sdxl-ckpts/`
 - **SD 1.5**: Download from [SAeUron](https://github.com/yourusername/SAeUron) and place in `checkpoints/sd1.5-sae-ckpts/`
 
 See [checkpoints/README.md](checkpoints/README.md) for details.
@@ -246,10 +246,14 @@ See [checkpoints/README.md](checkpoints/README.md) for details.
 If you use ConceptACP in your research, please cite:
 
 ```bibtex
-@article{conceptacp2024,
-  title={Concept Acupuncturist: An Efficient and Precise Concept Erasure Method for Diffusion Models Via Sparse Autoencoders},
-  author={Your Name},
-  year={2024}
+@misc{xiahou2026conceptacupuncturistefficientprecise,
+      title={Concept Acupuncturist: An Efficient and Precise Concept Erasure Method for Diffusion Models via Sparse Autoencoders}, 
+      author={Yiran Xiahou and Siliang Qin and Kai Chen and Shengzhi Zhang and Renyang Liu},
+      year={2026},
+      eprint={2610.32059},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2610.32059}, 
 }
 ```
 
